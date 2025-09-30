@@ -53,12 +53,16 @@ class WindowSet:
     y: np.ndarray  # (n_windows,) 1 if any transaction in the window is anomalous
     account_ids: np.ndarray  # (n_windows,)
     end_txn_ids: np.ndarray  # (n_windows,) id of last transaction in each window
+    anomaly_types: np.ndarray | None = None  # (n_windows,) injected anomaly type or "none"
 
     def __len__(self) -> int:
         return len(self.X)
 
     def subset(self, mask: np.ndarray) -> "WindowSet":
-        return WindowSet(self.X[mask], self.y[mask], self.account_ids[mask], self.end_txn_ids[mask])
+        types = self.anomaly_types[mask] if self.anomaly_types is not None else None
+        return WindowSet(
+            self.X[mask], self.y[mask], self.account_ids[mask], self.end_txn_ids[mask], types
+        )
 
 
 def make_windows(
@@ -85,18 +89,24 @@ def make_windows(
         else np.arange(len(features)).astype(str)
     )
     accounts = features["account_id"].to_numpy()
+    kinds = (
+        features["anomaly_type"].astype(str).to_numpy()
+        if "anomaly_type" in features.columns
+        else np.full(len(features), "none", dtype=object)
+    )
 
-    xs, ys, accs, ends = [], [], [], []
+    xs, ys, accs, ends, types = [], [], [], [], []
     boundaries = np.flatnonzero(accounts[1:] != accounts[:-1]) + 1
     starts = np.concatenate([[0], boundaries])
     stops = np.concatenate([boundaries, [len(features)]])
     for s, e in zip(starts, stops):
-        block, lab, ids = scaled[s:e], labels[s:e], txn_ids[s:e]
+        block, lab, ids, kd = scaled[s:e], labels[s:e], txn_ids[s:e], kinds[s:e]
         if len(block) < seq_len:
             pad = seq_len - len(block)
             block = np.concatenate([np.repeat(block[:1], pad, axis=0), block])
             lab = np.concatenate([np.zeros(pad, dtype=lab.dtype), lab])
             ids = np.concatenate([np.repeat(ids[:1], pad), ids])
+            kd = np.concatenate([np.full(pad, "none", dtype=object), kd])
         last_start = len(block) - seq_len
         offsets = list(range(0, last_start + 1, stride))
         if offsets[-1] != last_start:
@@ -106,10 +116,18 @@ def make_windows(
             ys.append(int(lab[o : o + seq_len].max()))
             accs.append(accounts[s])
             ends.append(ids[o + seq_len - 1])
+            window_kinds = [k for k in kd[o : o + seq_len] if k != "none"]
+            types.append(max(set(window_kinds), key=window_kinds.count) if window_kinds else "none")
 
     n_features = scaled.shape[1]
     X = np.stack(xs).astype(np.float32) if xs else np.zeros((0, seq_len, n_features), np.float32)
-    return WindowSet(X, np.asarray(ys, dtype=np.int64), np.asarray(accs), np.asarray(ends))
+    return WindowSet(
+        X,
+        np.asarray(ys, dtype=np.int64),
+        np.asarray(accs),
+        np.asarray(ends),
+        np.asarray(types, dtype=object),
+    )
 
 
 def split_accounts(

@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Environments
+.venv/
+venv/
+.env
+
+# Generated data and model artifacts
+data/
+artifacts/
+*.pt
+*.npz
+*.parquet
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
